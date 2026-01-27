@@ -1,27 +1,49 @@
+/*
+ * Copyright (c) 2026 Matheus Garcia.  All rights reserved.
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer. 
+ * 
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution. 
+ * 
+ * 3. Neither the name of the author nor the names of its contributors may be
+ *    used to endorse or promote products derived from this software without
+ *    specific prior written permission. 
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+ * DAMAGE.
+ */
+
 #include <linux/module.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
+#include <linux/kallsyms.h>
 
-MODULE_LICENSE("BSD");
+MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Matheus Garcia");
 MODULE_DESCRIPTION("Disable SELinux enforcing.");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.2");
 
 static int *selinux_enforcing;
 static void (*selnl_notify_setenforce)(int);
 static void (*selinux_status_update_setenforce)(int);
 static int (*avc_ss_reset)(u32);
 static struct task_struct *thread;
-
-static unsigned long enforcing_addr;
-static unsigned long notify_addr;
-static unsigned long status_update_addr;
-static unsigned long ss_reset_addr;
-
-module_param(enforcing_addr, ulong, 0644);
-module_param(notify_addr, ulong, 0644);
-module_param(status_update_addr, ulong, 0644);
-module_param(ss_reset_addr, ulong, 0644);
 
 static int selinux_permissive(void *data) {
     while(!kthread_should_stop())
@@ -40,16 +62,10 @@ static int selinux_permissive(void *data) {
 
 static int __init selinux_permissive_start(void)
 {
-    if(!enforcing_addr ||
-       !notify_addr ||
-       !status_update_addr ||
-       !ss_reset_addr)
-        return -EINVAL;
-
-    selinux_enforcing = (void *) enforcing_addr;
-    selnl_notify_setenforce = (void *) notify_addr;
-    selinux_status_update_setenforce = (void *) status_update_addr;
-    avc_ss_reset = (void *) ss_reset_addr;
+    selinux_enforcing = (void *) kallsyms_lookup_name("selinux_enforcing");
+    selnl_notify_setenforce = (void *) kallsyms_lookup_name("selnl_notify_setenforce");
+    selinux_status_update_setenforce = (void *) kallsyms_lookup_name("selinux_status_update_setenforce");
+    avc_ss_reset = (void *) kallsyms_lookup_name("avc_ss_reset");
     thread = kthread_run(selinux_permissive, NULL, "selinux_permissive");
 
     return 0;
