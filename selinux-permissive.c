@@ -37,8 +37,9 @@
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Matheus Garcia");
 MODULE_DESCRIPTION("Disable SELinux enforcing.");
-MODULE_VERSION("0.3");
+MODULE_VERSION("0.3.1");
 
+static int *selinux_enforcing;
 static void (*selnl_notify_setenforce)(int);
 static void (*selinux_status_update_setenforce)(int);
 static int (*avc_ss_reset)(u32);
@@ -66,6 +67,7 @@ static int __init selinux_permissive_start(void)
     if(kern_path("/sys/fs/selinux/enforce", LOOKUP_FOLLOW, &path))
         return -EINVAL;
 
+    selinux_enforcing = (void *) kallsyms_lookup_name("selinux_enforcing");
     selnl_notify_setenforce = (void *) kallsyms_lookup_name("selnl_notify_setenforce");
     selinux_status_update_setenforce = (void *) kallsyms_lookup_name("selinux_status_update_setenforce");
     avc_ss_reset = (void *) kallsyms_lookup_name("avc_ss_reset");
@@ -83,13 +85,11 @@ static int __init selinux_permissive_start(void)
 static void __exit selinux_permissive_stop(void)
 {
     struct inode *inode;
-    int *selinux_enforcing;
 
-    selinux_enforcing = (void *) kallsyms_lookup_name("selinux_enforcing");
     if(selinux_enforcing != NULL)
     {
-        if(*selinux_enforcing)
-            avc_ss_reset(0);
+        *selinux_enforcing = 1;
+        avc_ss_reset(0);
         selnl_notify_setenforce(*selinux_enforcing);
         selinux_status_update_setenforce(*selinux_enforcing);
     }
