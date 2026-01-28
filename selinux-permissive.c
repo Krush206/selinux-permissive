@@ -37,7 +37,7 @@
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Matheus Garcia");
 MODULE_DESCRIPTION("Disable SELinux enforcing.");
-MODULE_VERSION("0.2");
+MODULE_VERSION("0.2.1");
 
 static int *selinux_enforcing;
 static void (*selnl_notify_setenforce)(int);
@@ -45,7 +45,15 @@ static void (*selinux_status_update_setenforce)(int);
 static int (*avc_ss_reset)(u32);
 static struct task_struct *thread;
 
-static int selinux_permissive(void *data) {
+static void selinux_permissive_set(void)
+{
+    WRITE_ONCE(*selinux_enforcing, 0);
+    selnl_notify_setenforce(*selinux_enforcing);
+    selinux_status_update_setenforce(*selinux_enforcing);
+}
+
+static int selinux_permissive_loop(void *data)
+{
     while(!kthread_should_stop())
     {
         if(!READ_ONCE(*selinux_enforcing))
@@ -53,9 +61,7 @@ static int selinux_permissive(void *data) {
             msleep(100);
             continue;
         }
-        WRITE_ONCE(*selinux_enforcing, 0);
-        selnl_notify_setenforce(*selinux_enforcing);
-        selinux_status_update_setenforce(*selinux_enforcing);
+        selinux_permissive_set();
     }
     return 0;
 }
@@ -66,7 +72,10 @@ static int __init selinux_permissive_start(void)
     selnl_notify_setenforce = (void *) kallsyms_lookup_name("selnl_notify_setenforce");
     selinux_status_update_setenforce = (void *) kallsyms_lookup_name("selinux_status_update_setenforce");
     avc_ss_reset = (void *) kallsyms_lookup_name("avc_ss_reset");
-    thread = kthread_run(selinux_permissive, NULL, "selinux_permissive");
+    selinux_permissive_set();
+    thread = kthread_run(selinux_permissive_loop,
+                         NULL,
+                         "selinux_permissive_loop");
 
     return 0;
 }
