@@ -37,7 +37,7 @@
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Matheus Garcia");
 MODULE_DESCRIPTION("Disable SELinux enforcing.");
-MODULE_VERSION("0.3.1");
+MODULE_VERSION("0.3.2");
 
 static int *selinux_enforcing;
 static void (*selnl_notify_setenforce)(int);
@@ -76,6 +76,8 @@ static int __init selinux_permissive_start(void)
     sel_enforce_ops = inode->i_fop;
     inode->i_fop = &sel_permissive_ops;
 
+    if(selinux_enforcing != NULL)
+        *selinux_enforcing = 0;
     selnl_notify_setenforce(0);
     selinux_status_update_setenforce(0);
 
