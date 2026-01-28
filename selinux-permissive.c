@@ -30,63 +30,80 @@
  */
 
 #include <linux/module.h>
-#include <linux/kthread.h>
-#include <linux/delay.h>
+#include <linux/fs.h>
+#include <linux/namei.h>
 #include <linux/kallsyms.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Matheus Garcia");
 MODULE_DESCRIPTION("Disable SELinux enforcing.");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.3");
 
-static int *selinux_enforcing;
 static void (*selnl_notify_setenforce)(int);
 static void (*selinux_status_update_setenforce)(int);
 static int (*avc_ss_reset)(u32);
-static struct task_struct *thread;
 
-static void selinux_permissive_set(void)
+static struct path path;
+
+static ssize_t sel_read_permissive(struct file *filp,
+                                   char __user *buf,
+                                   size_t count,
+                                   loff_t *ppos)
 {
-    WRITE_ONCE(*selinux_enforcing, 0);
-    selnl_notify_setenforce(*selinux_enforcing);
-    selinux_status_update_setenforce(*selinux_enforcing);
+    return simple_read_from_buffer(buf, count, ppos, "0", (ssize_t) 1);
 }
 
-static int selinux_permissive_loop(void *data)
-{
-    while(!kthread_should_stop())
-    {
-        if(!READ_ONCE(*selinux_enforcing))
-        {
-            msleep(100);
-            continue;
-        }
-        selinux_permissive_set();
-    }
-    return 0;
-}
+static const struct file_operations *sel_enforce_ops;
+static const struct file_operations sel_permissive_ops = {
+    .read = sel_read_permissive,
+    .llseek = generic_file_llseek
+};
 
 static int __init selinux_permissive_start(void)
 {
-    selinux_enforcing = (void *) kallsyms_lookup_name("selinux_enforcing");
+    struct inode *inode;
+
+    if(kern_path("/sys/fs/selinux/enforce", LOOKUP_FOLLOW, &path))
+        return -EINVAL;
+
     selnl_notify_setenforce = (void *) kallsyms_lookup_name("selnl_notify_setenforce");
     selinux_status_update_setenforce = (void *) kallsyms_lookup_name("selinux_status_update_setenforce");
     avc_ss_reset = (void *) kallsyms_lookup_name("avc_ss_reset");
-    selinux_permissive_set();
-    thread = kthread_run(selinux_permissive_loop,
-                         NULL,
-                         "selinux_permissive_loop");
+
+    inode = d_inode(path.dentry);
+    sel_enforce_ops = inode->i_fop;
+    inode->i_fop = &sel_permissive_ops;
+
+    selnl_notify_setenforce(0);
+    selinux_status_update_setenforce(0);
 
     return 0;
 }
 
 static void __exit selinux_permissive_stop(void)
 {
-    kthread_stop(thread);
-    WRITE_ONCE(*selinux_enforcing, 1);
-    avc_ss_reset(0);
-    selnl_notify_setenforce(*selinux_enforcing);
-    selinux_status_update_setenforce(*selinux_enforcing);
+    struct inode *inode;
+    int *selinux_enforcing;
+
+    selinux_enforcing = (void *) kallsyms_lookup_name("selinux_enforcing");
+    if(selinux_enforcing != NULL)
+    {
+        if(*selinux_enforcing)
+            avc_ss_reset(0);
+        selnl_notify_setenforce(*selinux_enforcing);
+        selinux_status_update_setenforce(*selinux_enforcing);
+    }
+    else
+    {
+        avc_ss_reset(0);
+        selnl_notify_setenforce(1);
+        selinux_status_update_setenforce(1);
+    }
+
+    inode = d_inode(path.dentry);
+    inode->i_fop = sel_enforce_ops;
+
+    path_put(&path);
 }
 
 module_init(selinux_permissive_start);
